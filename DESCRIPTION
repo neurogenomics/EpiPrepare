@@ -1,23 +1,29 @@
-Package: templateR
+Package: EpiProcess
 Type: Package
 Title: packageTitle
 Version: 0.99.0
-Authors@R: c( 
-     person(given = "yourGivenName",
-           family = "yourFamilyName",
+Authors@R: 
+    c(person(given = "Brian",
+           family = "Schilder",
            role = c("cre"),
-           email = "yourEmail@email.com",
-           comment = c(ORCID = "yourOrcidId"))
-    )
+           email = "brian_schilder@alumni.brown.edu",
+           comment = c(ORCID = "0000-0001-5949-2191")),
+    person(given = "Leyla",
+           family = "Abbasova",
+           role = c("ctb"),
+           email = "leyla.abbasova20@imperial.ac.uk"))
 Description: packageDescription.
-URL: https://github.com/neurogenomics/templateR
-BugReports: https://github.com/neurogenomics/templateR/issues
+URL: https://github.com/neurogenomics/EpiProcess
+BugReports: https://github.com/neurogenomics/EpiProcess/issues
 Encoding: UTF-8
 LazyData: true
 Depends: R (>= 4.1)
 biocViews:
     Genetics, FunctionalGenomics, SystemsBiology
 Imports:
+    echoconda,
+    dplyr,
+    data.table
 Suggests:
     markdown,
     rmarkdown,
@@ -30,8 +36,9 @@ Suggests:
     badger,
     hexSticker,
     utils,
-    here,
-    dplyr
+    here
+Remotes:
+    github::RajLabMSSM/echoconda
 RoxygenNote: 7.1.2
 VignetteBuilder: knitr
 License: GPL-3

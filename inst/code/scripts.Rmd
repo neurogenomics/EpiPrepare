@@ -1,0 +1,401 @@
+---
+title: "processing_scripts"
+author: "Leyla Abbasova"
+output: html_document
+---
+
+
+# Pre-processing
+
+## FastQC
+
+```{r, engine='bash', eval=FALSE}
+### Linux command ###
+
+module load fastqc/0.11.5
+
+datadir="rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/raw_data/HKTCKBBXY/IGFQ001138_hu_2-3-2021_CutandTag/IGF117517"
+workdir="rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+
+sample_name="..."
+
+#mkdir -p $workdir/fastqFileQC/${sample_name}
+
+/apps/fastqc/0.11.5/fastqc -d ./fastqc_temp -o ${workdir}/fastqFileQC/${sample_name} -f fastq ${datadir}/${sample_name}_L008_R1_001.fastq.gz
+/apps/fastqc/0.11.5/fastqc -d ./fastqc_temp -o ${workdir}/fastqFileQC/${sample_name} -f fastq ${datadir}/${sample_name}_L008_R2_001.fastq.gz
+```
+
+
+## Adapter trimming
+
+Get bad gzip error if use zipped files, so gunzip first.
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+sampledir="rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/raw_data/HKTCKBBXY/IGFQ001138_hu_2-3-2021_CutandTag/IGF117517"
+outdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY/data_trimmed"
+
+#mkdir -p $outdir
+
+sample_name="..."
+
+## need cutadapt
+module load anaconda3/personal
+source activate cutadaptenv
+
+/rds/general/user/la420/home/TrimGalore-0.6.6/trim_galore -o $outdir --gzip --basename $sample_name --paired $sampledir/${sample_name}_R1_001.fastq $sampledir/${sample_name}_R2_001.fastq
+```
+
+
+# Alignment
+
+Index and other genome files obtained at https://emea.support.illumina.com/sequencing/sequencing_software/igenome.html
+
+* If adapter trimming is not required (e.g. in case of shorter-read sequencing, such as 25x25 paired-end sequencing), use the --end-to-end instead of --local bowtie2 setting. --local is used to avoid remaining adapter sequence at the 3’ ends of reads during mapping. 
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+datadir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+ref="/rds/general/user/la420/home/hg19/index/genome"
+cores=8
+
+sample_name="..."
+
+#mkdir -p ${datadir}/alignment/sam/bowtie2_summary
+#mkdir -p ${datadir}/alignment/bam
+#mkdir -p ${datadir}/alignment/bed
+#mkdir -p ${datadir}/alignment/bedgraph
+
+outdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY/alignment/sam"
+
+module load bowtie2/2.2.9
+
+bowtie2 \
+--local \ 
+--very-sensitive \
+--no-mixed \
+--no-discordant \
+--phred33 \
+-I 10 \
+-X 700 \
+-p ${cores} \
+-x ${ref} \
+-1 ${datadir}/data_trimmed/${sample_name}_val_1.fq.gz \
+-2 ${datadir}/data_trimmed/${sample_name}_val_2.fq.gz \
+-S ${outdir}/${sample_name}_trimmed_bowtie2.sam &> ${outdir}/bowtie2_summary/${sample_name}_trimmed_bowtie2.txt
+```
+
+
+# Remove duplicates
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+module load picard/2.6.0
+
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+picard_command="java -Xmx12G -XX:ParallelGCThreads=5 -XX:GCTimeLimit=50 -jar /apps/picard/2.6.0/picard.jar"
+sample_name="..."
+
+#mkdir -p $workdir/removeDuplicate
+#mkdir -p $workdir/removeDuplicate/picard_summary
+
+## sort by coordinate
+$picard_command SortSam I=$workdir/alignment/sam/${sample_name}_trimmed_bowtie2.sam O=$workdir/alignment/sam/${sample_name}_trimmed_bowtie2.sorted.sam SORT_ORDER=coordinate
+
+## mark duplicates
+$picard_command MarkDuplicates I=$workdir/alignment/sam/${sample_name}_trimmed_bowtie2.sorted.sam O=$workdir/removeDuplicate/${sample_name}_trimmed_bowtie2.sorted.dupMarked.sam METRICS_FILE=$workdir/removeDuplicate/picard_summary/${sample_name}_picard.dupMark.txt
+
+## remove duplicates
+$picard_command MarkDuplicates I=$workdir/alignment/sam/${sample_name}_trimmed_bowtie2.sorted.sam O=$workdir/removeDuplicate/${sample_name}_trimmed_bowtie2.sorted.rmDup.sam REMOVE_DUPLICATES=true METRICS_FILE=$workdir/removeDuplicate/picard_summary/${sample_name}_picard.rmDup.txt
+```
+
+
+# Obtain fragment size distribution
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+module load samtools/1.3.1
+
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+sample_name="..."
+
+#mkdir -p $workdir/alignment/sam/fragmentLen
+
+## extract the 9th column from the alignment sam file which is the fragment length
+samtools view -F 0x04 $workdir/removeDuplicate/${sample_name}_trimmed_bowtie2.sorted.rmDup.sam | awk -F'\t' 'function abs(x){return ((x < 0.0) ? -x : x)} {print abs($9)}' | sort | uniq -c | awk -v OFS="\t" '{print $2, $1/2}' >$workdir/alignment/sam/fragmentLen/${sample_name}_rmDup_fragmentLen.txt
+```
+
+
+# Convert files
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+module load samtools/1.3.1
+module load bedtools/2.25.0
+
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+sample_name="..."
+
+## sort sam file by read name (rather than coordinate, as it is now)
+samtools sort -n $workdir/removeDuplicate/${sample_name}_trimmed_bowtie2.sorted.rmDup.sam -o $workdir/alignment/sam/${sample_name}_trimmed_bowtie2.n_sorted.rmDup.sam
+
+## filter and keep the mapped read pairs
+samtools view -bS -F 0x04 $workdir/alignment/sam/${sample_name}_trimmed_bowtie2.n_sorted.rmDup.sam >$workdir/alignment/bam/${sample_name}_bowtie2_rmDup.mapped.bam
+
+## convert into bed file format
+bedtools bamtobed -i $workdir/alignment/bam/${sample_name}_bowtie2_rmDup.mapped.bam -bedpe >$workdir/alignment/bed/${sample_name}_bowtie2_rmDup.bed
+
+## keep the read pairs that are on the same chromosome and fragment length less than 1000bp.
+awk '$1==$4 && $6-$2 < 1000 {print $0}' $workdir/alignment/bed/${sample_name}_bowtie2_rmDup.bed >$workdir/alignment/bed/${sample_name}_bowtie2_rmDup.clean.bed
+
+## only extract the fragment related columns
+cut -f 1,2,6 $workdir/alignment/bed/${sample_name}_bowtie2_rmDup.clean.bed | sort -k1,1 -k2,2n -k3,3n  >$workdir/alignment/bed/${sample_name}_bowtie2_rmDup.fragments.bed
+```
+
+
+# Downsampling
+
+Can be done from fastqs or bam files
+
+``` {r, engine='bash', eval=FALSE}
+### Linux command
+
+module load samtools/1.3.1
+
+bamdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY/alignment/bam"
+sample_name="..."
+
+read_proportion=".05" #this would be 5%
+seed="..."
+
+samtools view -bs ${seed}${read_proportion} $bamdir/{sample_name}_bowtie2.mapped.bam > $bamdir/{sample_name}_subsample.mapped.bam
+```
+
+
+# Make (normalized) bedgraph
+
+Optional as this does not affect peak calling, only bedgraph values. 
+
+*chrom sizes from http://hgdownload.cse.ucsc.edu/goldenpath/hg19/bigZips/hg19.chrom.sizes
+
+``` {r, engine='bash', eval=FALSE}
+### Linux command
+
+module load bedtools/2.25.0
+
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY/alignment"
+chromSize="/rds/general/user/la420/home/hg19/other/hg19.chrom.sizes"
+
+sample_name="..."
+
+#total number of (paired-end) reads, or 2x the number of fragments
+seqDepthDouble=`samtools view -F 0x04 $workdir/alignment/sam/${sample_name}_trimmed_bowtie2.sam | wc -l`
+seqDepth=$((seqDepthDouble/2))
+
+if [[ "$seqDepth" -gt "1" ]]; then
+
+    scale_factor=`echo "1000000 / $seqDepth" | bc -l`
+    echo "Scaling factor for $sample_name is: $scale_factor"
+    bedtools genomecov -bg -scale $scale_factor -i $workdir/bed/${sample_name}_bowtie2_rmDup.fragments.bed -g $chromSize > $workdir/bedgraph/${sample_name}_norm_bowtie2_rmDup.fragments.bedgraph
+    
+fi
+```
+
+
+# Peak calling (SEACR)
+
+*No IgG control, so using "non"
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+module load anaconda3/personal
+source activate seacr_env
+
+seacr="bash $HOME/anaconda3/envs/seacr_env/bin/SEACR_1.3.sh"
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+sample_name="..."
+
+$seacr $workdir/alignment/bedgraph/${sample_name}_bowtie2_rmDup.fragments.bedgraph 0.01 non stringent $workdir/peakCalling/SEACR/${sample_name}_seacr_top0.01.peaks
+```
+
+
+# Visualization
+
+Prepare bigwig file: 
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+module load anaconda3/personal
+source activate deepenv
+module load samtools/1.3.1
+
+bamCoverage="$HOME/anaconda3/envs/deepenv/bin/bamCoverage"
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+
+sample_name="Diagenode_S1"
+
+#mkdir $workdir/alignment/bigwig
+
+samtools sort -o $workdir/alignment/bam/${sample_name}_rmDup.sorted.bam $workdir/alignment/bam/${sample_name}_bowtie2_rmDup.mapped.bam
+samtools index $workdir/alignment/bam/${sample_name}_rmDup.sorted.bam
+$bamCoverage -b $workdir/alignment/bam/${sample_name}_rmDup.sorted.bam -o $workdir/alignment/bigwig/${sample_name}_rmDup_raw.bw       
+```
+
+
+## Heatmap over transcription units
+
+hg19 genes from: https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/genes/hg19.ncbiRefSeq.gtf.gz
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+module load anaconda3/personal
+source activate deepenv
+
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+plotHeatmap="$HOME/anaconda3/envs/deepenv/bin/plotHeatmap"
+computeMatrix="$HOME/anaconda3/envs/deepenv/bin/computeMatrix"
+
+sample_1="..."
+sample_2="..."
+
+cores=8
+
+#mkdir -p $workdir/heatmap
+
+computeMatrix scale-regions -S $workdir/alignment/bigwig/${sample_1}_rmDup_raw.bw \
+                               $workdir/alignment/bigwig/${sample_2}_rmDup_raw.bw \
+                              -R $HOME/hg19/other/hg19.ncbiRefSeq.gtf.gz \
+                              --beforeRegionStartLength 3000 \
+                              --regionBodyLength 5000 \
+                              --afterRegionStartLength 3000 \
+                              --skipZeros \
+                              -o $workdir/heatmap/matrix_gene.mat.gz \
+                              -p $cores
+
+plotHeatmap -m $workdir/heatmap/hg19_gene/matrix_gene.mat.gz -out $workdir/heatmap/heatmap_transcription_units.png --sortUsing sum
+```
+
+
+## Heatmap over CUT&Tag peaks
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+module load anaconda3/personal
+source activate deepenv
+
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+plotHeatmap="$HOME/anaconda3/envs/deepenv/bin/plotHeatmap"
+computeMatrix="$HOME/anaconda3/envs/deepenv/bin/computeMatrix"
+
+sample_name="..."
+
+cores=8
+
+awk '{split($6, summit, ":"); split(summit[2], region, "-"); print summit[1]"\t"region[1]"\t"region[2]}' $workdir/peakCalling/SEACR/${sample_name}_seacr_top0.01.peaks.stringent.bed >$workdir/peakCalling/SEACR/${sample_name}_seacr_top0.01.peaks.summitRegion.bed
+
+computeMatrix reference-point -S $workdir/alignment/bigwig/${sample_name}_rmDup_raw.bw -R $workdir/peakCalling/SEACR/${sample_name}_seacr_top0.01.peaks.summitRegion.bed --skipZeros -o $workdir/peakCalling/SEACR/${sample_name}_SEACR.mat.gz -p $cores -a 3000 -b 3000 --referencePoint center
+
+plotHeatmap -m $workdir/peakCalling/SEACR/${sample_name}_SEACR.mat.gz -out $workdir/peakCalling/SEACR/${sample_name}_SEACR_heatmap.png --sortUsing sum --startLabel "Peak Start" --endLabel "Peak End" --xAxisLabel "" --regionsLabel "Peaks" --samplesLabel "${sample_name}"
+```
+
+
+# Peak calling (MACS2)
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+module load anaconda3/personal
+source activate macs2_env
+
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+out_dir="${workdir}/peakCalling"
+
+#mkdir -p $outdir
+#mkdir -p $outdir/MACS2
+
+sample_name="..."
+
+macs2 callpeak -t $workdir/alignment/bam/${sample_name}_rmDup.sorted.bam -q 0.05 -n ${sample_name}_q0.05 -f BAMPE -g hs --keep-dup all --nomodel --outdir $out_dir/MACS2
+```
+
+
+# Find motifs
+
+```{r, engine='bash', eval=FALSE}
+
+module load anaconda3/personal
+source activate homerenv
+
+workdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY"
+peakdir="${workdir}/peakCalling"
+outdir="${workdir}/motifs"
+#mkdir -p $outdir
+
+caller="..."
+sample_name="..."
+genome="..."
+
+# need separate folder per sample
+#mkdir -p $outdir/${sample_name}
+
+findMotifsGenome.pl $peakdir/${caller}/${sample_name}_${caller}.bed $genome $out_dir -size given
+```
+
+
+# Genome-wide correlation
+
+```{r, engine='bash', eval=FALSE}
+### Linux command
+
+#PBS -l walltime=72:00:00
+#PBS -l select=1:ncpus=32:mem=124gb
+
+module load anaconda3/personal
+source activate bedtools_env
+
+abdir="/rds/general/user/la420/home/CUTnTAG/antibodies"
+corrdir="${abdir}/correlation"
+bamdir="${abdir}/bam/sorted_bam"
+beddir="${corrdir}/ENCODE_peak_files"
+ENCODE_bamdir="${corrdir}/ENCODE_peak_files/bam/sorted_bam/fixed"
+old_ENCODE_bamdir="${corrdir}/ENCODE_peak_files/bam/sorted_bam"
+outdir="${corrdir}/all_marks"
+mergedbeddir="${abdir}/all_peaks/merged"
+hg19_dir="/rds/general/user/la420/home/hg19/other"
+
+#mark="H3K27ac_ENCFF044JNJ"
+#mark="H3K27me3_ENCFF126QYP"
+
+bedtools multicov -bams \
+$bamdir/Abcam-ab177178_rmDup.sorted.fixed2.bam \
+$bamdir/Abcam-ab4729_rmDup.sorted.fixed2.bam \
+$bamdir/ActiveMotif_rmDup.sorted.fixed2.bam \
+$bamdir/Diagenode_100x_rmDup.sorted.fixed2.bam \
+$bamdir/Diagenode_50x_rmDup.sorted.fixed2.bam \
+$bamdir/H3K27me3_rmDup.sorted.fixed2.bam \
+$bamdir/H3K27ac_SRR8383507_rmDup.sorted.fixed2.bam \
+$bamdir/H3K27ac_SRR8383508_rmDup.sorted.fixed2.bam \
+$bamdir/H3K27me3_SRR11074238_rmDup.sorted.fixed2.bam \
+$bamdir/H3K27me3_SRR11074239_rmDup.sorted.fixed2.bam \
+$bamdir/ActiveMotif_H3K27ac_rmDup.sorted.fixed2.bam \
+$bamdir/H3K27ac_SRR8581604_CnR_rmDup.sorted.fixed2.bam \
+$bamdir/H3K27me3_SRR907370_CnR_rmDup.sorted.fixed2.bam \
+$old_ENCODE_bamdir/H3K27ac_ENCFF384ZZM_sorted.bam \
+$old_ENCODE_bamdir/H3K27me3_ENCFF676ORH_sorted.bam \
+$ENCODE_bamdir/H3K4me1_ENCFF196QGZ_sorted.fixed.bam \
+$ENCODE_bamdir/H3K4me3_ENCFF915MJO_sorted.fixed.bam \
+$ENCODE_bamdir/H3K9ac_ENCFF204DNG_sorted.fixed.bam \
+$ENCODE_bamdir/H3K9me3_ENCFF805FLY_sorted.fixed.bam \
+$ENCODE_bamdir/H3K36me3_ENCFF190AQC_sorted.fixed.bam \
+$ENCODE_bamdir/DNase_ENCFF826DJP_sorted.fixed.bam \
+-bed $hg19_dir/hg19_500bp_windows.bed > $outdir/hg19_500bp_overlaps.txt
+```
+
