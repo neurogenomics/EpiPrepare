@@ -1,6 +1,6 @@
-Package: EpiProcess
+Package: EpiPrepare
 Type: Package
-Title: packageTitle
+Title: Preprocess epigenomic data for downstream analysis
 Version: 0.99.0
 Authors@R: 
     c(person(given = "Brian",
@@ -12,9 +12,9 @@ Authors@R:
            family = "Abbasova",
            role = c("ctb"),
            email = "leyla.abbasova20@imperial.ac.uk"))
-Description: packageDescription.
-URL: https://github.com/neurogenomics/EpiProcess
-BugReports: https://github.com/neurogenomics/EpiProcess/issues
+Description: Preprocess epigenomic data for downstream analysis.
+URL: https://github.com/neurogenomics/EpiPrepare
+BugReports: https://github.com/neurogenomics/EpiPrepare/issues
 Encoding: UTF-8
 LazyData: true
 Depends: R (>= 4.1)

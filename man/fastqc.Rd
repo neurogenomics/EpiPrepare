@@ -11,6 +11,7 @@ fastqc(
   dir = "./fastqc_temp",
   format = "fastq",
   threads = 1,
+  background = FALSE,
   fastqc_x = echoconda::find_packages("fastqc", conda_env = "epiprocess")$path,
   ...
 )
