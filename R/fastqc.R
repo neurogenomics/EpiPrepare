@@ -31,6 +31,7 @@ fastqc <- function(files,
                    dir = "./fastqc_temp",
                    format = "fastq",
                    threads=1,
+                   background=FALSE,
                    fastqc_x = echoconda::find_packages(
                      "fastqc",conda_env = "epiprocess")$path,
                    ...
@@ -48,6 +49,7 @@ fastqc <- function(files,
                  "--threads",threads,
                  paste(..., collapse = " "),
                  f)
+    if(background) cmd <- paste0(cmd,"&")
     echoconda::cmd_print(cmd)
     system(cmd)
     return(data.table::data.table(file=f,

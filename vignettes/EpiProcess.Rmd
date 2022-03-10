@@ -21,6 +21,9 @@ library(pkg, character.only = TRUE)
 library(`r pkg`)
 ```
 ```{r setup}
+echoconda::yaml_to_env("epiprocess")
+library(dplyr)
+
 root="/Volumes/bms20/projects/neurogenomics-lab/live/Data/tip_seq"
 print(root)
 
@@ -30,8 +33,7 @@ datadir=file.path(
 print(datadir) 
 fastq_files <- list.files(datadir, pattern = ".fastq.gz|.fq.gz",
                           full.names = TRUE, recursive = TRUE)
-
-echoconda::yaml_to_env("epiprocess")
+ 
 ```
 
 
@@ -40,13 +42,8 @@ echoconda::yaml_to_env("epiprocess")
 ## FastQC
 
 ```{r}
- 
+fastqc_out <- fastqc()
 
-```
-
-
-```{r, engine='bash', eval=FALSE}
- 
 ```
 
 
