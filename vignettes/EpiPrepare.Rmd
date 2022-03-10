@@ -21,7 +21,7 @@ library(pkg, character.only = TRUE)
 library(`r pkg`)
 ```
 ```{r setup}
-echoconda::yaml_to_env("epiprocess")
+echoconda::yaml_to_env("epiprepare")
 library(dplyr)
 
 root="/Volumes/bms20/projects/neurogenomics-lab/live/Data/tip_seq"
@@ -33,6 +33,7 @@ datadir=file.path(
 print(datadir) 
 fastq_files <- list.files(datadir, pattern = ".fastq.gz|.fq.gz",
                           full.names = TRUE, recursive = TRUE)
+message(length(fastq_files)," files retrieved.")
  
 ```
 

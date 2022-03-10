@@ -2,7 +2,6 @@
 #'
 #' Run FASTQC on fastq files.
 #' @param files Paths to files of the type specified in \code{format}.
-#' @param rootdir Base directory containing all files for the project.
 #' @param dir  Selects a directory to be used for temporary files written when
 #' generating report images. Defaults to system temp directory if
 #' not specified.
@@ -21,9 +20,9 @@
 #' 6 threads on a 32 bit machine.
 #' @param fastqc_x Path to \code{fastqc} software executable.
 #' @param ... Additional string arguments to be passed to \code{fastqc}.
+#' @export
 fastqc <- function(files,
-                   rootdir="./",
-                   outdir = file.path(rootdir,
+                   outdir = file.path(tempdir(),
                                       "processed_data",
                                       "batch1",
                                       "fastqFileQC",
@@ -34,8 +33,7 @@ fastqc <- function(files,
                    background=FALSE,
                    fastqc_x = echoconda::find_packages(
                      "fastqc",conda_env = "epiprocess")$path,
-                   ...
-){
+                   ...){
   out <- lapply(files, function(f){
     if(!file.exists(f)) stop("Cannot find fastq file:",f)
     dir.create(dir, showWarnings = FALSE, recursive = TRUE)
@@ -53,7 +51,6 @@ fastqc <- function(files,
     echoconda::cmd_print(cmd)
     system(cmd)
     return(data.table::data.table(file=f,
-                                  rootdir=rootdir,
                                   outdir=outdir,
                                   dir=dir,
                                   format=format,
