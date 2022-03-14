@@ -23,7 +23,9 @@ biocViews:
 Imports:
     echoconda,
     dplyr,
-    data.table
+    data.table,
+    fastqcr,
+    Rbowtie2
 Suggests:
     markdown,
     rmarkdown,

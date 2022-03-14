@@ -6,20 +6,20 @@
 \usage{
 fastqc(
   files,
-  rootdir = "./",
-  outdir = file.path(rootdir, "processed_data", "batch1", "fastqFileQC", basename(fq)),
-  dir = "./fastqc_temp",
+  outdir = file.path(tempdir(), "EpiPrepare_results", "fastqc"),
+  dir = file.path(tempdir(), "fastqc_temp"),
   format = "fastq",
   threads = 1,
   background = FALSE,
-  fastqc_x = echoconda::find_packages("fastqc", conda_env = "epiprocess")$path,
+  force_new = FALSE,
+  return_all = FALSE,
+  conda_env = "epiprepare",
+  verbose = TRUE,
   ...
 )
 }
 \arguments{
 \item{files}{Paths to files of the type specified in \code{format}.}
-
-\item{rootdir}{Base directory containing all files for the project.}
 
 \item{outdir}{Create all output files in the specified output directory.
 Please note that this directory must exist as the program
@@ -41,10 +41,22 @@ memory so you shouldn't run more threads than your
 available memory will cope with, and not more than
 6 threads on a 32 bit machine.}
 
-\item{fastqc_x}{Path to \code{fastqc} software executable.}
+\item{force_new}{If FASTQ results for these files already exist,
+overwrite them (default: \code{FALSE}).}
+
+\item{return_all}{Return all FASTQ results located in the \code{outdir}, 
+even if they are not from one of the \code{files} in this run
+ (default: \code{FALSE}).}
+
+\item{verbose}{Print messages.}
 
 \item{...}{Additional string arguments to be passed to \code{fastqc}.}
+
+\item{ex}{Path to \code{fastqc} software executable.}
 }
 \description{
 Run FASTQC on fastq files.
+}
+\examples{
+
 }

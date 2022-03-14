@@ -5,7 +5,7 @@ date: "<h4>Vignette updated: <i>`r format( Sys.Date(), '%b-%d-%Y')`</i></h4>"
 output:
   BiocStyle::html_document
 vignette: >
-    %\VignetteIndexEntry{templateR} 
+    %\VignetteIndexEntry{`r read.dcf("../DESCRIPTION", fields = "Package")[1]`}
     %\usepackage[utf8]{inputenc}
     %\VignetteEngine{knitr::rmarkdown}
 ---
@@ -20,31 +20,66 @@ library(pkg, character.only = TRUE)
 ```R
 library(`r pkg`)
 ```
+
 ```{r setup}
-echoconda::yaml_to_env("epiprepare")
+library(EpiPrepare)
 library(dplyr)
 
-root="/Volumes/bms20/projects/neurogenomics-lab/live/Data/tip_seq"
+root="/home/bms20/RDS/project/neurogenomics-lab/live/Data/tip_seq"
 print(root)
 
 datadir=file.path(
-  root,"raw_data/H3K27ac_K562_cells/phase_1_05_jan_2022/X204SC21121860-Z01-F001/raw_data"
+  root,
+  "raw_data/H3K27ac_K562_cells/phase_1_05_jan_2022/X204SC21121860-Z01-F001/raw_data"
 )
 print(datadir) 
-fastq_files <- list.files(datadir, pattern = ".fastq.gz|.fq.gz",
-                          full.names = TRUE, recursive = TRUE)
-message(length(fastq_files)," files retrieved.")
- 
 ```
 
+# Prepare input files
+
+```{r} 
+# files <- list.files(datadir, pattern = ".fastq.gz|.fq.gz",
+                    # full.names = TRUE, recursive = TRUE)
+# message(length(files)," files retrieved.")
+
+design <- make_design_files(root=root, 
+                            split_batches = FALSE,
+                            omit_processed = FALSE,
+                            force_new = TRUE) 
+```
+
+
+# Conda environment
+
+Create a conda environment specifically designed for `EpiPrepare`. 
+The yaml used to specify all the required packages for this env is 
+included within the package
+[`echoconda`](https://github.com/RajLabMSSM/echoconda) and can automatically 
+be built as follows. If the env already exists, building will be skipped.
+
+```{r}
+echoconda::yaml_to_env("epiprepare") 
+```
 
 # Pre-processing
 
 ## FastQC
 
-```{r}
-fastqc_out <- fastqc()
+```{r, eval=FALSE}
+outdir <- here::here("EpiPrepare_results","fastqc")
+fastqc_out <- fastqc(files = files,
+                     outdir = outdir, 
+                     conda_env = "epiprepare",
+                     threads = 10)
 
+#### Individual samples ####
+qc <- fastqcr::qc_read(file = grep(".zip$",fastqc_out,value = TRUE)[1])
+fastqcr::qc_plot(qc = qc, modules = c("Summary",
+                                      "Basic Statistics", 
+                                      "Sequence Duplication Levels"))
+#### All samples ####
+qc_agg <- fastqcr::qc_aggregate(qc.dir = outdir)
+fastqcr::qc_fails(qc_agg)
 ```
 
 
@@ -52,29 +87,30 @@ fastqc_out <- fastqc()
 
 Get bad gzip error if use zipped files, so gunzip first.
 
-```{r, engine='bash', eval=FALSE}
-### Linux command
-
-sampledir="rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/raw_data/HKTCKBBXY/IGFQ001138_hu_2-3-2021_CutandTag/IGF117517"
-outdir="/rds/general/project/neurogenomics-lab/live/GitRepos/CUT_n_TAG/processed_data/HKTCKBBXY/data_trimmed"
-
-#mkdir -p $outdir
-
-sample_name="..."
-
-## need cutadapt
-module load anaconda3/personal
-source activate cutadaptenv
-
-/rds/general/user/la420/home/TrimGalore-0.6.6/trim_galore -o $outdir --gzip --basename $sample_name --paired $sampledir/${sample_name}_R1_001.fastq $sampledir/${sample_name}_R2_001.fastq
+```{r}
+outdir <- here::here("EpiPrepare_results","trimgalore")
+trimgalore_out <- trimgalore(design =  design,
+                             outdir = outdir,
+                             conda_env = "epiprepare")
 ```
-
-
+ 
 # Alignment
 
-Index and other genome files obtained at https://emea.support.illumina.com/sequencing/sequencing_software/igenome.html
+Index and other genome files obtained through the [iGenomes](https://emea.support.illumina.com/sequencing/sequencing_software/igenome.html) resource. [AWS-iGenomes GitHub](https://github.com/ewels/AWS-iGenomes).
 
-* If adapter trimming is not required (e.g. in case of shorter-read sequencing, such as 25x25 paired-end sequencing), use the --end-to-end instead of --local bowtie2 setting. --local is used to avoid remaining adapter sequence at the 3’ ends of reads during mapping. 
+* If adapter trimming is not required (e.g. in case of shorter-read sequencing, such as 25x25 paired-end sequencing), use the `--end-to-end` instead of `--local bowtie2` setting.`--local` is used to avoid remaining adapter sequence at the 3’ ends of reads during mapping. 
+
+
+```{r}
+bowtie2_ex <- echoconda::find_packages(packages = "bowtie2",
+                                       conda_env = "epiprepare")
+
+bowtie2_out <- bowtie2(design=design,
+                    outdir = here::here("EpiPrepare_results",
+                                          "bowtie2"),
+                    conda_env = "epiprepare")
+```
+
 
 ```{r, engine='bash', eval=FALSE}
 ### Linux command
@@ -421,7 +457,19 @@ $ENCODE_bamdir/DNase_ENCFF826DJP_sorted.fixed.bam \
 -bed $hg19_dir/hg19_500bp_windows.bed > $outdir/hg19_500bp_overlaps.txt
 ```
 
+# Gather outputs
 
+## BED files
+
+```{r}
+## !!!! need to merge at sample level as  well !!!!
+metadata_path=file.path(
+    "/home/bms20/RDS/project/neurogenomics-lab",
+    "live/Projects/TIPseq/reports/Bulk TIP-seq samples_V2.xlsx")
+# meta=readxl::read_excel(metadata_path, skip = 6)
+sample_dict <- make_sample_dict(batch_list = unique(design$batch), 
+                                metadata_path = metadata_path)
+```
 
 
 # Session Info 
